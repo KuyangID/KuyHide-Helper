@@ -54,11 +54,12 @@ public class MainHook implements IXposedHookLoadPackage {
         // Skip hooking our own module
         if (lpparam.packageName.equals("id.kuyang.hide")) return;
 
-        // Skip System Server, Settings App, and Settings Provider to avoid system conflicts.
-        // We only target third-party apps to hide developer settings/ADB status.
+        // Skip Zygote, System Server, and all core Android system packages (like SystemUI, Settings, MTP, USB)
+        // to avoid boot conflicts, MTP/USB state machine breakage, and setting loops.
+        // We only target third-party user apps to spoof developer settings / ADB status.
         if (lpparam.packageName.equals("android") ||
-            lpparam.packageName.equals("com.android.settings") || 
-            lpparam.packageName.equals("com.android.providers.settings")) {
+            lpparam.packageName.startsWith("com.android.") ||
+            lpparam.packageName.startsWith("com.google.android.gms")) {
             return;
         }
 

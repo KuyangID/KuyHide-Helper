@@ -6,9 +6,7 @@
     <!-- Deskripsi di LSPosed Manager -->
     <string name="xposed_description">All-in-one Xposed module to hide ADB/USB Debugging, Developer Options, Accessibility Services, and Debugger status from apps. Keeps ADB enabled while making apps think it\'s off.\n\nFeatures:\n• Hide USB Debugging (ADB) status\n• Hide Developer Options\n• Hide Accessibility Services\n• Hide Debugger connection\n• Spoof system properties\n\nby KuyangID\nTelegram: t.me/KuyangID</string>
 
-    <!-- LSPosed recommended scope -->
+    <!-- LSPosed recommended scope (empty since we only target user-selected apps) -->
     <string-array name="xposed_scope">
-        <item>android</item>
-        <item>com.android.settings</item>
     </string-array>
 </resources>
