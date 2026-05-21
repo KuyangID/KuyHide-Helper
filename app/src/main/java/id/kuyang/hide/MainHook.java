@@ -70,6 +70,7 @@ public class MainHook implements IXposedHookLoadPackage {
         hookSettingsSecure(lpparam);
         hookDebugClass(lpparam);
         hookSystemProperties(lpparam);
+        hookAccessibilityManager(lpparam);
     }
 
 
@@ -124,6 +125,60 @@ public class MainHook implements IXposedHookLoadPackage {
                         }
                     }
                 });
+
+            // Hook getStringForUser(ContentResolver, String, int)
+            try {
+                XposedHelpers.findAndHookMethod(settingsGlobal, "getStringForUser",
+                    "android.content.ContentResolver", String.class, int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            String key = (String) param.args[1];
+                            if (shouldHideGlobalInt(key)) {
+                                param.setResult("0");
+                                log("[Global.getStringForUser] Hid: " + key + " → '0'");
+                            }
+                        }
+                    });
+            } catch (Throwable t) {
+                log("Settings.Global getStringForUser hook skipped: " + t.getMessage());
+            }
+
+            // Hook getIntForUser(ContentResolver, String, int, int)
+            try {
+                XposedHelpers.findAndHookMethod(settingsGlobal, "getIntForUser",
+                    "android.content.ContentResolver", String.class, int.class, int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            String key = (String) param.args[1];
+                            if (shouldHideGlobalInt(key)) {
+                                param.setResult(0);
+                                log("[Global.getIntForUser] Hid: " + key + " → 0");
+                            }
+                        }
+                    });
+            } catch (Throwable t) {
+                log("Settings.Global getIntForUser(cr, name, def, user) hook skipped: " + t.getMessage());
+            }
+
+            // Hook getIntForUser(ContentResolver, String, int)
+            try {
+                XposedHelpers.findAndHookMethod(settingsGlobal, "getIntForUser",
+                    "android.content.ContentResolver", String.class, int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            String key = (String) param.args[1];
+                            if (shouldHideGlobalInt(key)) {
+                                param.setResult(0);
+                                log("[Global.getIntForUser] Hid: " + key + " → 0");
+                            }
+                        }
+                    });
+            } catch (Throwable t) {
+                log("Settings.Global getIntForUser(cr, name, user) hook skipped: " + t.getMessage());
+            }
 
             log("✓ Settings.Global hooks installed");
 
@@ -186,6 +241,64 @@ public class MainHook implements IXposedHookLoadPackage {
                         }
                     }
                 });
+
+            // Hook getStringForUser(ContentResolver, String, int)
+            try {
+                XposedHelpers.findAndHookMethod(settingsSecure, "getStringForUser",
+                    "android.content.ContentResolver", String.class, int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            String key = (String) param.args[1];
+                            if (shouldHideSecureString(key)) {
+                                param.setResult("");
+                                log("[Secure.getStringForUser] Hid: " + key + " → ''");
+                            }
+                            if (shouldHideSecureInt(key)) {
+                                param.setResult("0");
+                                log("[Secure.getStringForUser] Hid: " + key + " → '0'");
+                            }
+                        }
+                    });
+            } catch (Throwable t) {
+                log("Settings.Secure getStringForUser hook skipped: " + t.getMessage());
+            }
+
+            // Hook getIntForUser(ContentResolver, String, int, int)
+            try {
+                XposedHelpers.findAndHookMethod(settingsSecure, "getIntForUser",
+                    "android.content.ContentResolver", String.class, int.class, int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            String key = (String) param.args[1];
+                            if (shouldHideSecureInt(key)) {
+                                param.setResult(0);
+                                log("[Secure.getIntForUser] Hid: " + key + " → 0");
+                            }
+                        }
+                    });
+            } catch (Throwable t) {
+                log("Settings.Secure getIntForUser(cr, name, def, user) hook skipped: " + t.getMessage());
+            }
+
+            // Hook getIntForUser(ContentResolver, String, int)
+            try {
+                XposedHelpers.findAndHookMethod(settingsSecure, "getIntForUser",
+                    "android.content.ContentResolver", String.class, int.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            String key = (String) param.args[1];
+                            if (shouldHideSecureInt(key)) {
+                                param.setResult(0);
+                                log("[Secure.getIntForUser] Hid: " + key + " → 0");
+                            }
+                        }
+                    });
+            } catch (Throwable t) {
+                log("Settings.Secure getIntForUser(cr, name, user) hook skipped: " + t.getMessage());
+            }
 
             log("✓ Settings.Secure hooks installed");
 
@@ -344,6 +457,71 @@ public class MainHook implements IXposedHookLoadPackage {
             if (hideKey.equals(key)) return true;
         }
         return false;
+    }
+
+    // =============================================
+    // HOOK 5: AccessibilityManager — Hide active services
+    // =============================================
+    private void hookAccessibilityManager(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            Class<?> accessibilityManager = XposedHelpers.findClass(
+                "android.view.accessibility.AccessibilityManager", lpparam.classLoader);
+
+            // Hook isEnabled() -> return false
+            XposedHelpers.findAndHookMethod(accessibilityManager, "isEnabled",
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        param.setResult(false);
+                        log("[AccessibilityManager.isEnabled] Spoofed to false");
+                    }
+                });
+
+            // Hook isTouchExplorationEnabled() -> return false
+            XposedHelpers.findAndHookMethod(accessibilityManager, "isTouchExplorationEnabled",
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        param.setResult(false);
+                        log("[AccessibilityManager.isTouchExplorationEnabled] Spoofed to false");
+                    }
+                });
+
+            // Hook getEnabledAccessibilityServiceList(int) -> return empty list
+            XposedHelpers.findAndHookMethod(accessibilityManager, "getEnabledAccessibilityServiceList",
+                int.class,
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        param.setResult(new java.util.ArrayList<>());
+                        log("[AccessibilityManager.getEnabledAccessibilityServiceList] Spoofed to empty list");
+                    }
+                });
+
+            // Hook getInstalledAccessibilityServiceList() -> return empty list
+            XposedHelpers.findAndHookMethod(accessibilityManager, "getInstalledAccessibilityServiceList",
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        param.setResult(new java.util.ArrayList<>());
+                        log("[AccessibilityManager.getInstalledAccessibilityServiceList] Spoofed to empty list");
+                    }
+                });
+
+            // Hook getAccessibilityServiceList() -> return empty list (legacy/deprecated but hooked for safety)
+            XposedHelpers.findAndHookMethod(accessibilityManager, "getAccessibilityServiceList",
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        param.setResult(new java.util.ArrayList<>());
+                        log("[AccessibilityManager.getAccessibilityServiceList] Spoofed to empty list");
+                    }
+                });
+
+            log("✓ AccessibilityManager hooks installed");
+        } catch (Throwable t) {
+            log("✗ AccessibilityManager hook failed: " + t.getMessage());
+        }
     }
 
     // =============================================
