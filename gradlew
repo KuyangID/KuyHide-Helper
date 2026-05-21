@@ -7,7 +7,7 @@ MAX_FD="maximum"
 warn() { echo "$*"; }
 die() { echo "$*"; exit 1; }
 
-DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
+DEFAULT_JVM_OPTS="-Xmx64m -Xms64m"
 
 CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
 
