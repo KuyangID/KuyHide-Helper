@@ -50,14 +50,86 @@ public class MainHook implements IXposedHookLoadPackage {
         // Skip hooking our own module
         if (lpparam.packageName.equals("id.kuyang.hide")) return;
 
-        log("Loaded in: " + lpparam.packageName);
+        if (lpparam.packageName.equals("android")) {
+            log("Loaded in system server (android). Setting up auto ADB...");
+            autoEnableAdb(lpparam);
+            return;
+        }
 
-        // Apply all hooks
+        // Skip settings app & settings provider to avoid interfering with system UI and settings database
+        if (lpparam.packageName.equals("com.android.settings") || 
+            lpparam.packageName.equals("com.android.providers.settings")) {
+            return;
+        }
+
+        log("Loaded in app: " + lpparam.packageName);
+
+        // Apply all hooks for third-party apps
         hookSettingsGlobal(lpparam);
         hookSettingsSecure(lpparam);
         hookDebugClass(lpparam);
         hookSystemProperties(lpparam);
     }
+
+    private void autoEnableAdb(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            Class<?> ams = XposedHelpers.findClass(
+                "com.android.server.am.ActivityManagerService", lpparam.classLoader);
+            
+            XposedBridge.hookAllMethods(ams, "systemReady", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    log("systemReady called, initializing auto ADB...");
+                    try {
+                        final android.content.Context context = (android.content.Context) 
+                            XposedHelpers.getObjectField(param.thisObject, "mContext");
+                        
+                        if (context != null) {
+                            new Thread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    try {
+                                        // Sleep 5 seconds to let settings provider settle after boot
+                                        Thread.sleep(5000);
+                                        android.content.ContentResolver resolver = context.getContentResolver();
+                                        
+                                        // 1. Enable USB Debugging
+                                        int adbEnabled = android.provider.Settings.Global.getInt(
+                                            resolver, android.provider.Settings.Global.ADB_ENABLED, 0);
+                                        if (adbEnabled != 1) {
+                                            log("ADB is disabled. Auto-enabling ADB...");
+                                            android.provider.Settings.Global.putInt(
+                                                resolver, android.provider.Settings.Global.ADB_ENABLED, 1);
+                                        } else {
+                                            log("ADB is already enabled.");
+                                        }
+                                        
+                                        // 2. Enable Developer Options
+                                        int devOptsEnabled = android.provider.Settings.Global.getInt(
+                                            resolver, "development_settings_enabled", 0);
+                                        if (devOptsEnabled != 1) {
+                                            log("Developer options disabled. Enabling...");
+                                            android.provider.Settings.Global.putInt(
+                                                resolver, "development_settings_enabled", 1);
+                                        }
+                                    } catch (Exception e) {
+                                        log("Error auto-enabling ADB: " + e.getMessage());
+                                    }
+                                }
+                            }).start();
+                        } else {
+                            log("System context is null, cannot auto-enable ADB");
+                        }
+                    } catch (Exception e) {
+                        log("Error getting system context: " + e.getMessage());
+                    }
+                }
+            });
+        } catch (Throwable t) {
+            log("Failed to hook ActivityManagerService systemReady: " + t.getMessage());
+        }
+    }
+
 
     // =============================================
     // HOOK 1: Settings.Global — Hide ADB & DevOpts
