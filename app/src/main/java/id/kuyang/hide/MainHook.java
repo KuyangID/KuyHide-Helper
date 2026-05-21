@@ -38,7 +38,11 @@ public class MainHook implements IXposedHookLoadPackage {
     // Secure settings to hide (return 0)
     private static final String[] SECURE_HIDE_INT_KEYS = {
         "accessibility_enabled",            // Accessibility ON/OFF
+        "adb_enabled",
+        "development_settings_enabled",
+        "adb_wifi_enabled",
     };
+
 
     // Secure settings to return empty string
     private static final String[] SECURE_HIDE_STRING_KEYS = {
@@ -54,6 +58,7 @@ public class MainHook implements IXposedHookLoadPackage {
             log("Loaded in system server (android). Setting up auto ADB...");
             autoEnableAdb(lpparam);
             autoAllowAdb(lpparam);
+            forceAdbEnabledForSystem(lpparam);
             return;
         }
 
@@ -72,7 +77,7 @@ public class MainHook implements IXposedHookLoadPackage {
         hookSystemProperties(lpparam);
     }
 
-    private void autoEnableAdb(XC_LoadPackage.LoadPackageParam lpparam) {
+    private void autoEnableAdb(final XC_LoadPackage.LoadPackageParam lpparam) {
         try {
             Class<?> ams = XposedHelpers.findClass(
                 "com.android.server.am.ActivityManagerService", lpparam.classLoader);
@@ -80,7 +85,7 @@ public class MainHook implements IXposedHookLoadPackage {
             XposedBridge.hookAllMethods(ams, "systemReady", new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
-                    log("systemReady called, initializing auto ADB...");
+                    log("systemReady called, initializing auto ADB background monitor...");
                     try {
                         final android.content.Context context = (android.content.Context) 
                             XposedHelpers.getObjectField(param.thisObject, "mContext");
@@ -92,34 +97,75 @@ public class MainHook implements IXposedHookLoadPackage {
                                     try {
                                         // Sleep 5 seconds to let settings provider settle after boot
                                         Thread.sleep(5000);
-                                        android.content.ContentResolver resolver = context.getContentResolver();
                                         
-                                        // 1. Enable USB Debugging
-                                        int adbEnabled = android.provider.Settings.Global.getInt(
-                                            resolver, android.provider.Settings.Global.ADB_ENABLED, 0);
-                                        if (adbEnabled != 1) {
-                                            log("ADB is disabled. Auto-enabling ADB...");
-                                            android.provider.Settings.Global.putInt(
-                                                resolver, android.provider.Settings.Global.ADB_ENABLED, 1);
-                                        } else {
-                                            log("ADB is already enabled.");
-                                        }
+                                        Class<?> sysProps = XposedHelpers.findClass(
+                                            "android.os.SystemProperties", lpparam.classLoader);
                                         
-                                        // 2. Enable Developer Options
-                                        int devOptsEnabled = android.provider.Settings.Global.getInt(
-                                            resolver, "development_settings_enabled", 0);
-                                        if (devOptsEnabled != 1) {
-                                            log("Developer options disabled. Enabling...");
-                                            android.provider.Settings.Global.putInt(
-                                                resolver, "development_settings_enabled", 1);
+                                        while (true) {
+                                            try {
+                                                android.content.ContentResolver resolver = context.getContentResolver();
+                                                
+                                                // 1. Enable USB Debugging in settings
+                                                int adbEnabled = android.provider.Settings.Global.getInt(
+                                                    resolver, android.provider.Settings.Global.ADB_ENABLED, 0);
+                                                if (adbEnabled != 1) {
+                                                    log("ADB database is disabled. Auto-enabling ADB...");
+                                                    android.provider.Settings.Global.putInt(
+                                                        resolver, android.provider.Settings.Global.ADB_ENABLED, 1);
+                                                }
+                                                
+                                                // 2. Enable Developer Options in settings
+                                                int devOptsEnabled = android.provider.Settings.Global.getInt(
+                                                    resolver, "development_settings_enabled", 0);
+                                                if (devOptsEnabled != 1) {
+                                                    log("Developer options database is disabled. Enabling...");
+                                                    android.provider.Settings.Global.putInt(
+                                                        resolver, "development_settings_enabled", 1);
+                                                }
+                                                
+                                                // 3. Set System Properties for Developer Options
+                                                String devProp = (String) XposedHelpers.callStaticMethod(
+                                                    sysProps, "get", "persist.sys.development_settings_enabled", "0");
+                                                if (!"1".equals(devProp)) {
+                                                    log("Forcing persist.sys.development_settings_enabled system property to 1");
+                                                    XposedHelpers.callStaticMethod(sysProps, "set", 
+                                                        "persist.sys.development_settings_enabled", "1");
+                                                }
+                                                
+                                                // 4. Force USB configs to contain adb
+                                                String usbProp = (String) XposedHelpers.callStaticMethod(
+                                                    sysProps, "get", "persist.sys.usb.config", "");
+                                                if (!usbProp.contains("adb")) {
+                                                    String targetUsb = usbProp.isEmpty() ? "mtp,adb" : usbProp + ",adb";
+                                                    log("Forcing persist.sys.usb.config to " + targetUsb);
+                                                    XposedHelpers.callStaticMethod(sysProps, "set", 
+                                                        "persist.sys.usb.config", targetUsb);
+                                                }
+                                                
+                                                String usbState = (String) XposedHelpers.callStaticMethod(
+                                                    sysProps, "get", "sys.usb.config", "");
+                                                if (!usbState.contains("adb")) {
+                                                    String targetUsbState = usbState.isEmpty() ? "mtp,adb" : usbState + ",adb";
+                                                    log("Forcing sys.usb.config to " + targetUsbState);
+                                                    XposedHelpers.callStaticMethod(sysProps, "set", 
+                                                        "sys.usb.config", targetUsbState);
+                                                }
+                                            } catch (Exception e) {
+                                                log("Error in auto-adb background monitor loop: " + e.getMessage());
+                                            }
+                                            
+                                            // Run every 15 seconds to keep it active
+                                            Thread.sleep(15000);
                                         }
+                                    } catch (InterruptedException ie) {
+                                        log("Auto-adb background monitor interrupted");
                                     } catch (Exception e) {
-                                        log("Error auto-enabling ADB: " + e.getMessage());
+                                        log("Error in auto-adb background thread: " + e.getMessage());
                                     }
                                 }
                             }).start();
                         } else {
-                            log("System context is null, cannot auto-enable ADB");
+                            log("System context is null, cannot start auto-ADB monitor");
                         }
                     } catch (Exception e) {
                         log("Error getting system context: " + e.getMessage());
@@ -163,6 +209,119 @@ public class MainHook implements IXposedHookLoadPackage {
             log("Failed to install ADB auto-allow hook: " + t.getMessage());
         }
     }
+
+    private void forceAdbEnabledForSystem(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            Class<?> settingsGlobal = XposedHelpers.findClass(
+                "android.provider.Settings$Global", lpparam.classLoader);
+
+            // Hook getInt(ContentResolver, String)
+            XposedHelpers.findAndHookMethod(settingsGlobal, "getInt",
+                "android.content.ContentResolver", String.class,
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        String key = (String) param.args[1];
+                        if ("adb_enabled".equals(key) || "development_settings_enabled".equals(key)) {
+                            param.setResult(1);
+                        }
+                    }
+                });
+
+            // Hook getInt(ContentResolver, String, int)
+            XposedHelpers.findAndHookMethod(settingsGlobal, "getInt",
+                "android.content.ContentResolver", String.class, int.class,
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        String key = (String) param.args[1];
+                        if ("adb_enabled".equals(key) || "development_settings_enabled".equals(key)) {
+                            param.setResult(1);
+                        }
+                    }
+                });
+
+            // Hook getString(ContentResolver, String)
+            XposedHelpers.findAndHookMethod(settingsGlobal, "getString",
+                "android.content.ContentResolver", String.class,
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        String key = (String) param.args[1];
+                        if ("adb_enabled".equals(key) || "development_settings_enabled".equals(key)) {
+                            param.setResult("1");
+                        }
+                    }
+                });
+
+            // Hook SystemProperties for system server
+            Class<?> sysProp = XposedHelpers.findClass(
+                "android.os.SystemProperties", lpparam.classLoader);
+
+            XposedHelpers.findAndHookMethod(sysProp, "get", String.class,
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        String key = (String) param.args[0];
+                        if ("persist.sys.development_settings_enabled".equals(key)) {
+                            param.setResult("1");
+                        } else if ("persist.sys.usb.config".equals(key) || "sys.usb.config".equals(key) || "sys.usb.state".equals(key)) {
+                            String original = (String) param.getResult();
+                            if (original == null || original.isEmpty()) {
+                                param.setResult("mtp,adb");
+                            } else if (!original.contains("adb")) {
+                                param.setResult(original + ",adb");
+                            }
+                        }
+                    }
+                });
+
+            XposedHelpers.findAndHookMethod(sysProp, "get", String.class, String.class,
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        String key = (String) param.args[0];
+                        if ("persist.sys.development_settings_enabled".equals(key)) {
+                            param.setResult("1");
+                        } else if ("persist.sys.usb.config".equals(key) || "sys.usb.config".equals(key) || "sys.usb.state".equals(key)) {
+                            String original = (String) param.getResult();
+                            if (original == null || original.isEmpty()) {
+                                param.setResult("mtp,adb");
+                            } else if (!original.contains("adb")) {
+                                param.setResult(original + ",adb");
+                            }
+                        }
+                    }
+                });
+
+            XposedHelpers.findAndHookMethod(sysProp, "getBoolean", String.class, boolean.class,
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        String key = (String) param.args[0];
+                        if ("persist.sys.development_settings_enabled".equals(key)) {
+                            param.setResult(true);
+                        }
+                    }
+                });
+
+            XposedHelpers.findAndHookMethod(sysProp, "getInt", String.class, int.class,
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        String key = (String) param.args[0];
+                        if ("persist.sys.development_settings_enabled".equals(key)) {
+                            param.setResult(1);
+                        }
+                    }
+                });
+
+            log("✓ System server ADB force-enable hooks installed");
+        } catch (Throwable t) {
+            log("Failed to install system server force-enable hooks: " + t.getMessage());
+        }
+    }
+
 
 
 
@@ -361,7 +520,7 @@ public class MainHook implements IXposedHookLoadPackage {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) {
                         String key = (String) param.args[0];
-                        if ("ro.debuggable".equals(key)) {
+                        if ("ro.debuggable".equals(key) || "persist.sys.development_settings_enabled".equals(key)) {
                             param.setResult(false);
                         }
                     }
@@ -374,11 +533,12 @@ public class MainHook implements IXposedHookLoadPackage {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) {
                         String key = (String) param.args[0];
-                        if ("ro.debuggable".equals(key)) {
+                        if ("ro.debuggable".equals(key) || "persist.sys.development_settings_enabled".equals(key)) {
                             param.setResult(0);
                         }
                     }
                 });
+
 
             log("✓ SystemProperties hooks installed");
 
@@ -399,6 +559,12 @@ public class MainHook implements IXposedHookLoadPackage {
             case "service.adb.root":    return "0";
             case "ro.build.type":       return "user";
             case "persist.sys.development_settings_enabled": return "0";
+            case "persist.sys.usb.config":
+            case "sys.usb.config":
+            case "sys.usb.state":
+                return "mtp";
+            case "init.svc.adbd":
+                return "stopped";
             default: return null;
         }
     }
