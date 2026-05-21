@@ -123,14 +123,6 @@ public class MainHook implements IXposedHookLoadPackage {
                                             XposedHelpers.callStaticMethod(sysProps, "set", 
                                                 "persist.sys.usb.config", targetUsb);
                                         }
-                                        
-                                        String usbState = (String) XposedHelpers.callStaticMethod(
-                                            sysProps, "get", "sys.usb.config", "");
-                                        if (!usbState.contains("adb")) {
-                                            String targetUsbState = usbState.isEmpty() ? "mtp,adb" : usbState + ",adb";
-                                            XposedHelpers.callStaticMethod(sysProps, "set", 
-                                                "sys.usb.config", targetUsbState);
-                                        }
                                         log("One-shot auto ADB enabling complete.");
                                     } catch (Exception e) {
                                         log("Error in one-shot auto-adb: " + e.getMessage());
@@ -277,13 +269,6 @@ public class MainHook implements IXposedHookLoadPackage {
                         String key = (String) param.args[0];
                         if ("persist.sys.development_settings_enabled".equals(key)) {
                             param.setResult("1");
-                        } else if ("persist.sys.usb.config".equals(key) || "sys.usb.config".equals(key) || "sys.usb.state".equals(key)) {
-                            String original = (String) param.getResult();
-                            if (original == null || original.isEmpty()) {
-                                param.setResult("mtp,adb");
-                            } else if (!original.contains("adb")) {
-                                param.setResult(original + ",adb");
-                            }
                         }
                     }
                 });
@@ -296,13 +281,6 @@ public class MainHook implements IXposedHookLoadPackage {
                         String key = (String) param.args[0];
                         if ("persist.sys.development_settings_enabled".equals(key)) {
                             param.setResult("1");
-                        } else if ("persist.sys.usb.config".equals(key) || "sys.usb.config".equals(key) || "sys.usb.state".equals(key)) {
-                            String original = (String) param.getResult();
-                            if (original == null || original.isEmpty()) {
-                                param.setResult("mtp,adb");
-                            } else if (!original.contains("adb")) {
-                                param.setResult(original + ",adb");
-                            }
                         }
                     }
                 });
@@ -342,13 +320,6 @@ public class MainHook implements IXposedHookLoadPackage {
                             if (!"1".equals(val)) {
                                 log("Intercepted SystemProperties.set for " + key + " with value " + val + ". Forcing '1'.");
                                 param.args[1] = "1"; // Overwrite value to write 1
-                            }
-                        } else if ("persist.sys.usb.config".equals(key) || "sys.usb.config".equals(key)) {
-                            String val = (String) param.args[1];
-                            if (val != null && !val.contains("adb")) {
-                                String forcedUsb = val.isEmpty() ? "mtp,adb" : val + ",adb";
-                                log("Intercepted SystemProperties.set for " + key + " with value " + val + ". Forcing " + forcedUsb);
-                                param.args[1] = forcedUsb; // Force append adb to usb config writes
                             }
                         }
                     }
