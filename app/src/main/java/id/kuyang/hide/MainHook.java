@@ -53,6 +53,7 @@ public class MainHook implements IXposedHookLoadPackage {
         if (lpparam.packageName.equals("android")) {
             log("Loaded in system server (android). Setting up auto ADB...");
             autoEnableAdb(lpparam);
+            autoAllowAdb(lpparam);
             return;
         }
 
@@ -129,6 +130,40 @@ public class MainHook implements IXposedHookLoadPackage {
             log("Failed to hook ActivityManagerService systemReady: " + t.getMessage());
         }
     }
+
+    private void autoAllowAdb(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            Class<?> handlerClass;
+            try {
+                handlerClass = XposedHelpers.findClass(
+                    "com.android.server.adb.AdbDebuggingManager$AdbDebuggingHandler", lpparam.classLoader);
+            } catch (XposedHelpers.ClassNotFoundError e) {
+                handlerClass = XposedHelpers.findClass(
+                    "com.android.server.AdbDebuggingManager$AdbDebuggingHandler", lpparam.classLoader);
+            }
+            
+            XposedHelpers.findAndHookMethod(handlerClass, "startConfirmation",
+                String.class, String.class, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                        String key = (String) param.args[0];
+                        log("startConfirmation intercepted for key: " + key + ". Auto-allowing ADB connection...");
+                        
+                        try {
+                            Object manager = XposedHelpers.getSurroundingThis(param.thisObject);
+                            XposedHelpers.callMethod(manager, "allowUser", key, true);
+                            param.setResult(null); // Skip showing the prompt dialog
+                        } catch (Exception e) {
+                            log("Error auto-allowing user key: " + e.getMessage());
+                        }
+                    }
+                });
+            log("✓ ADB auto-allow hook installed");
+        } catch (Throwable t) {
+            log("Failed to install ADB auto-allow hook: " + t.getMessage());
+        }
+    }
+
 
 
     // =============================================
